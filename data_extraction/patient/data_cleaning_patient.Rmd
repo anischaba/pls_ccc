@@ -1,0 +1,338 @@
+---
+title: "patient_extraction"
+output: html_document
+date: "2026-02-03"
+---
+# Data import
+```{r}
+patient_1 <- readRDS("data_extraction/patient/patient_1.rds")
+patient_2 <- readRDS("data_extraction/patient/patient_2.rds")
+patient_3 <- readRDS("data_extraction/patient/patient_3.rds")
+```
+
+# Age and Sex
+```{r}
+library(dplyr)
+library(tidyverse)
+
+patient_1 <- patient_1 %>%
+  arrange(PatientNumber, AdmTime) %>%
+  group_by(PatientNumber) %>% 
+  mutate(icu_stay_id = row_number()) %>%
+  ungroup()
+```
+
+# Scores
+
+```{r}
+patient_2
+```
+
+# Height and Weight
+
+```{r}
+weight_height <- patient_3 %>% 
+  filter(VariableName %in% c("Poids du patient", "height")) %>% 
+  arrange(PatientID, ValueTime) %>% 
+  group_by(PatientID, VariableName) %>% 
+  slice(1) %>%
+  pivot_wider(names_from = VariableName, values_from = NumValue) %>%
+  rename(weight = `Poids du patient`) %>% 
+  group_by(PatientID) %>% 
+  fill(weight, .direction = "downup") %>% 
+  fill(height, .direction = "downup") %>%
+  ungroup() %>% 
+  select(PatientID, weight, height) %>%
+  distinct()
+```
+
+# ICU admission source
+
+```{r}
+icu_admission_source <- patient_3 %>%
+  filter(VariableName %in% c("service d origine")) %>% 
+  mutate(icu_adm_srce = case_when(StringValue %in% c("GHPS Urgences", 
+                                                     "Urg autre h\xf4pital"
+  ) ~ "Emergency Department",
+  
+  StringValue %in% c("GHPS Chir Card.R\xe9a", 
+                     "GHPS Pneumo",
+                     "GHPS M\xe9decine Piette", 
+                     "GHPS Infect Bricaire",
+                     "GHPS Cardio Salle",
+                     "GHPS Chir Card.Salle",
+                     "GHPS Neuro",
+                     "GHPS Porte",
+                     "GHPS Chir autre",
+                     "GHPS H\xe9matologie",
+                     "GHPS Gyn\xe9co",
+                     "GHPS N\xe9phro",
+                     "GHPS M\xe9decine autre",
+                     "GHPS M\xe9d Int Herson",
+                     "GHPS Oncologie",
+                     "GHPS Psy",
+                     "GHPS Gastro",
+                     "GHPS R\xe9a Rouby",
+                     "GHPS Uro",
+                     "GHPS Ortho"
+  ) ~ "Ward", 
+  
+  StringValue %in% c("M\xe9d autre h\xf4pital",
+                     "Chir autre h\xf4pital",
+                     "Urg autre h\xf4pital"
+  ) ~ "Other Hospital - Non ICU", 
+  
+  StringValue %in% c("Voie Publique",
+                     "Domicile"
+  ) ~ "Home or community",
+  
+  StringValue %in% c("GHPS Cardio USIC",
+                     "GHPS R\xe9a Autre",
+                     "GHPS R\xe9a Chastre",
+                     "GHPS USC Chastre"
+  ) ~ "ICU same hospital",
+  
+  StringValue %in% c("R\xe9a autre h\xf4pital"
+  ) ~ "ICU other hospital",
+  
+  StringValue %in% c("GHPS R\xe9veil"
+  ) ~ "Operating theatre",
+  
+  StringValue %in% c("Autre", 
+                     "."
+  ) ~ "Other", 
+  .default = NA
+  )
+  ) %>%
+  group_by(PatientID) %>% 
+  slice(1) %>% 
+  ungroup() %>%
+  select(PatientID, icu_adm_srce)
+```
+
+# Comorbidities
+
+```{r}
+chr_patient <- patient_3 %>% 
+  filter(VariableName %in% c("New York Heart Association",
+                             "Atteinte immuno", 
+                             "Atteinte h\xe9patique chronique",
+                             "Atteinte r\xe9nale chronique", 
+                             "ApachPoumons",
+                             "Etat de sant\xe9 ant\xe9rieur",
+                             "Cancer m\xe9tastatique",
+                             "Pathologie h\xe9matolo maligne",
+                             "VIH + r\xe9sultats cliniques",
+                             "Score de Mc Cabe",
+                             "Tabagisme",
+                             "OMS Score",
+                             "Accident Vasculaire C\xe9r\xe9bral",
+                             "Connectivite",
+                             "D\xe9mence",
+                             "Diab\xe8te",
+                             "Insuffisance Cardiaque",
+                             "Infarctus myocarde",
+                             "Maladie Pulmonaire chronique",
+                             "Ulc\xe8re Gastro-Duod\xe9nal",
+                             "Insuffisance R\xe9nale Chronique",
+                             "H\xe9pathopathie mod\xe9r\xe9e",
+                             "Diab\xe8te Complic visc\xe9rales",
+                             "Cancer",
+                             "Cancer m\xe9tastas\xe9",
+                             "Leuc\xe9mie",
+                             "Lymphome, My\xe9lome",
+                             "SIDA",
+                             "H\xe9mipl\xe9gie",
+                             "Grade de Comorbidit\xe9 Charlson",
+                             "Hypertension",
+                             "nombre verres alcool/j.",
+                             "Immunod\xe9pression",
+                             "Diab\xe9tique"
+  )) %>%
+  mutate(VariableName = case_when(VariableName == "New York Heart Association" ~ "chr_nyha", 
+                                  VariableName == "Atteinte immuno" ~ "chr_immunosup_cat", 
+                                  VariableName == "Atteinte h\xe9patique chronique" ~ "chr_liver", 
+                                  VariableName == "Atteinte r\xe9nale chronique" ~ "chr_renal", 
+                                  VariableName == "ApachPoumons" ~ "chr_lung", 
+                                  VariableName == "Etat de sant\xe9 ant\xe9rieur" ~ "score_oms", 
+                                  VariableName == "Cancer m\xe9tastatique" ~ "chr_meta_cancer", 
+                                  VariableName == "Pathologie h\xe9matolo maligne" ~ "chr_mal_haem", 
+                                  VariableName == "VIH + r\xe9sultats cliniques" ~ "chr_hiv", 
+                                  VariableName == "Score de Mc Cabe" ~ "score_mccabe", 
+                                  VariableName == "Tabagisme" ~ "demo_smoking", 
+                                  VariableName == "OMS Score" ~ "score_oms", 
+                                  VariableName == "Accident Vasculaire C\xe9r\xe9bral" ~ "chr_stroke", 
+                                  VariableName == "Connectivite" ~ "chr_connectivite", 
+                                  VariableName == "D\xe9mence" ~ "chr_dementia", 
+                                  VariableName == "Insuffisance Cardiaque" ~ "chr_heart_failure", 
+                                  VariableName == "Maladie Pulmonaire chronique" ~ "chr_pulm", 
+                                  VariableName == "Ulc\xe8re Gastro-Duod\xe9nal" ~ "chr_peptic_ulcer", 
+                                  VariableName == "Insuffisance R\xe9nale Chronique" ~ "chr_renal", 
+                                  VariableName == "H\xe9pathopathie mod\xe9r\xe9e" ~ "chr_liver", 
+                                  VariableName == "Diab\xe8te Complic visc\xe9rales" ~ "chr_diabetes", 
+                                  VariableName == "Cancer" ~ "chr_cancer", 
+                                  VariableName == "Cancer m\xe9tastas\xe9" ~ "chr_meta_cancer", 
+                                  VariableName == "Leuc\xe9mie" ~ "chr_leukemia", 
+                                  VariableName == "Lymphome, My\xe9lome" ~ "chr_lymphoma_myeloma", 
+                                  VariableName == "SIDA" ~ "chr_hiv", 
+                                  VariableName == "H\xe9mipl\xe9gie" ~ "chr_hemiplegia", 
+                                  VariableName == "Grade de Comorbidit\xe9 Charlson" ~ "score_charlson", 
+                                  VariableName == "Hypertension" ~ "chr_hypertension", 
+                                  VariableName == "nombre verres alcool/j." ~ "demo_alcohol", 
+                                  VariableName == "Immunod\xe9pression"~ "chr_immunosup", ## Full NA
+                                  VariableName == "Diab\xe9tique" ~ "chr_diabetes")) %>%
+  group_by(PatientID, VariableName, ValueTime) %>% 
+  mutate(NumValue_max = max(NumValue, na.rm = TRUE)) %>% 
+  filter(NumValue == NumValue_max) %>%
+  distinct() %>%
+  slice(1) %>%
+  ungroup() %>%
+  select(-NumValue_max, -NumValue) %>%
+  pivot_wider(names_from = VariableName, values_from = StringValue) %>%
+  mutate_all(~str_replace_all(., "\xe","e")) %>%
+  mutate_all(~str_replace_all(., "é","e")) %>%
+  mutate_all(~str_replace_all(., "�","e")) %>%
+  mutate_all(~tolower(.)) %>%
+  mutate(chr_hiv = case_when(chr_hiv == "oui" ~ 1,
+                             .default = 0
+  ), 
+  chr_immunosup_cat = case_when(chr_immunosup_cat == "autre pathologie" ~ "Other",
+                                chr_immunosup_cat == "cancer metastase" ~ "Metastatic cancer",
+                                chr_immunosup_cat == "corticoides lg cours" ~ "Corticosteroids",
+                                chr_immunosup_cat == "granulopenie" ~ "Neutropenia",
+                                chr_immunosup_cat == "greffe moelle alloge" ~ "Allogenic Steam Cell Transplantation",
+                                chr_immunosup_cat == "greffe moelle auto" ~ "Autogenic Steam Cell Transplantation",
+                                chr_immunosup_cat == "greffe organe plein" ~ "Solid Transplantation",
+                                chr_immunosup_cat == "leucemie aigue" ~ "Acute leukemia",
+                                chr_immunosup_cat == "leucemie chronique" ~ "Chronic leukemia",
+                                chr_immunosup_cat == "lymphome" ~ "Lymphoma",
+                                chr_immunosup_cat == "neo hematologique" ~ "Other haematological malignancy",
+                                chr_immunosup_cat == "normal" ~ "None",
+                                chr_immunosup_cat == "sida" ~ "HIV/AIDS",
+                                chr_immunosup_cat == "tt immunosuppresseur" ~ "Immunospressors", 
+                                .default = "None"
+  ), 
+  chr_liver = case_when(chr_liver %in% c("cirrhose histologie", "encephalopathie", "hie digestive (htp)", "htp documentee", "oui") ~ 1, 
+                        .default = 0), 
+  chr_lung = case_when(chr_lung %in% c("autre pathologie", "escalier impossible", "htap > 40 mm hg", "hypercapnie chroniq", "polyglobulie ii", "ventile e domicile") ~ 1, 
+                       .default = 0), 
+  chr_mal_haem = case_when(chr_mal_haem == "oui" ~ 1, 
+                           .default = 0),
+  chr_meta_cancer = case_when(chr_meta_cancer == "oui" ~ 1, 
+                              .default = 0),
+  chr_nyha = case_when(chr_nyha == "1, cardiop sans dysp" ~ 1,
+                       chr_nyha == "2, dyspnee effort" ~ 2,
+                       chr_nyha == "3, dyspmoindreeffor" ~ 3,
+                       chr_nyha == "4, dysp repos" ~ 4,
+                       chr_nyha == "pas maladie coeur" ~ 0, 
+                       .default = NA), 
+  chr_renal = case_when(chr_renal %in% c("autre pathologie", "dialyse chronique", "oui") ~ 1, 
+                        .default = 0),
+  demo_smoking = case_when(demo_smoking %in% c("actif", "sevre") ~ 1, 
+                           .default = 0), 
+  score_mccabe = case_when(score_mccabe %in% c("0pas de maladie fond", "pas de maladie fond", "pas atteinte vitale") ~ "non-fatal (>5 years)", 
+                           score_mccabe == "1<survie<5 ans" ~ "ultimately fatal (1–4 years)", 
+                           score_mccabe == "survie<1 an" ~ "rapidly fatal (<1 year)",
+                           .default = "non-fatal (>5 years)"), 
+  score_oms = case_when(score_oms %in% c("0, activite normale") ~ 0, 
+                        score_oms %in% c("1, symptomemod", "a, independant") ~ 1, 
+                        score_oms %in% c("2, alite-50% jour", "b, restricti moderee") ~ 2, 
+                        score_oms %in% c("3, alite + 50% jour", "c, restricti severe") ~ 3, 
+                        score_oms %in% c("4, ne peut se lever", "d, restricti majeure") ~ 4), 
+  score_charlson = case_when(score_charlson == "0" ~ "0", 
+                             score_charlson == "1 e 2" ~ "1-2", 
+                             score_charlson == "3 e 4" ~ "3-4", 
+                             score_charlson == "5 ou plus" ~ "≥5",
+                             .default = NA
+  ), 
+  demo_alcohol = case_when(demo_alcohol %in% c("1-3", "4-6", "7 ou +") ~ 1, 
+                           demo_alcohol == "0" ~ 0, 
+                           .default = NA), 
+  PatientID = as.numeric(PatientID)) %>%
+  mutate_at(.vars = c("chr_cancer", 
+                      "chr_connectivite", 
+                      "chr_dementia",
+                      "chr_diabetes", 
+                      "chr_heart_failure",
+                      "chr_hemiplegia",
+                      "chr_leukemia", 
+                      "chr_lymphoma_myeloma",
+                      "chr_peptic_ulcer",
+                      "chr_pulm",
+                      "chr_stroke"), 
+            .funs = ~ifelse(. %in% c("non", NA), 0, 1)) %>%
+  group_by(PatientID) %>%
+  fill(.direction = "downup") %>%
+  mutate_at(.vars = c("chr_hiv", 
+                      "chr_liver",
+                      "chr_lung",
+                      "chr_mal_haem",
+                      "chr_meta_cancer",
+                      "chr_renal",
+                      "demo_smoking",
+                      "chr_cancer",
+                      "chr_connectivite",
+                      "chr_dementia",
+                      "chr_diabetes",
+                      "chr_heart_failure",
+                      "chr_hemiplegia",
+                      "chr_leukemia",
+                      "chr_lymphoma_myeloma",
+                      "chr_peptic_ulcer",
+                      "chr_pulm",
+                      "chr_stroke",
+                      "demo_alcohol"), 
+            .funs = ~ifelse(any(. == 1, na.rm = TRUE), 1, 0)) %>%
+  mutate(chr_nyha = max(chr_nyha, na.rm = TRUE), 
+         score_oms = max(score_oms, na.rm = TRUE)) %>% 
+  mutate(chr_immunosup = ifelse(any(chr_immunosup_cat != "None", na.rm = TRUE), 1, 0), 
+         score_mccabe = factor(score_mccabe, levels = c("non-fatal (>5 years)", 
+                                                        "rapidly fatal (<1 year)", 
+                                                        "ultimately fatal (1–4 years)"), 
+                               ordered = TRUE), 
+         score_charlson = factor(score_charlson, levels = c("0", 
+                                                            "1-2",
+                                                            "3-4",
+                                                            "≥5"), 
+                                 ordered= TRUE)) %>%
+  mutate(score_mccabe = max(score_mccabe, na.rm = TRUE), 
+         score_charlson = max(score_charlson, na.rm = TRUE)) %>%
+  select(-ValueTime, 
+         -chr_immunosup_cat, 
+         -'NA') %>%
+  distinct() %>%
+  mutate_all(~ifelse(. %in% c(-Inf, Inf), NA, .))
+```
+
+```{r}
+patient_final <- patient_1 %>%
+  merge(patient_2, 
+        by = "PatientID", all = TRUE) %>% 
+  merge(chr_patient, 
+        by = "PatientID", all = TRUE) %>%
+  merge(weight_height, 
+        by = "PatientID", all = TRUE) %>%
+  merge(icu_admission_source, 
+        by = "PatientID", all = TRUE)
+
+saveRDS(patient_final, "data_extraction/patient/patient_final.rds")
+```
+
+```{r}
+library(gtsummary)
+
+patient_final %>%
+  select(PatientSex, 
+         AdmissionAgeInCalYears, 
+         APACHE, 
+         SAPS,
+         grep("chr_", colnames(.)), 
+         height, 
+         weight, 
+         icu_adm_srce
+  ) %>% 
+  tbl_summary()
+```
+
+
+
