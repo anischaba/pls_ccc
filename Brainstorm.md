@@ -23,12 +23,12 @@
 
 ## Patient
 
-- Age,
-- Sex
-- BMI,
-- Comorbidités
-- Source d'admission
-- Scores pronostiques (SAPS2, APACHE, SOFA)
+- Age, **OK AC**
+- Sex  **OK AC**
+- BMI,**OK AC**
+- Comorbidités**OK AC**
+- Source d'admission**OK AC**
+- Scores pronostiques (SAPS2, APACHE, SOFA)**OK AC**
 - Outcome -\> Moralité en réa, Mortalité hospitalière
 - Intervention en réanimation (ventilation, vasopresseur, inotrope, EERRT)
 - Lactate, PaO2, PacO2, pH
