@@ -1,19 +1,19 @@
 # Brain storm
 
 ## Organisation 
--> Plutot séprarer VA et VV 
--> Premiers travaux
-     1) Descrption des pratiques de changement de membrane
-     2) Facteurs associés au changement et par cause spécifique 
-     3) Phénotyper les types de changement de membrane (défaut d'oxygénation etc)
-     4) Relation avec un outcome à définir
+- Plutot séprarer VA et VV 
+- Premiers travaux
+     * Descrption des pratiques de changement de membrane
+     * Facteurs associés au changement et par cause spécifique 
+     * Phénotyper les types de changement de membrane (défaut d'oxygénation etc)
+     * Relation avec un outcome à définir
      
--> Idée pour plus tard
-    1) Correlation ACT, anti-Xa avec Héparine. Peut être plus tard avec quantra
-    2) CarboxyHb association avec changement mécanique de mb
-    3) TTE, TCA range avec comme outcome chg de membrane 
-    4) Cefazo/Ceftaroline vs OXA dans les troubles de l'hémostase (EI)
-    5) Cefazo vs OXA dans les AKI (EI)
+##  Idée pour plus tard
+  - Correlation ACT, anti-Xa avec Héparine. Peut être plus tard avec quantra
+  - CarboxyHb association avec changement mécanique de mb
+  - TTE, TCA range avec comme outcome chg de membrane 
+  - Cefazo/Ceftaroline vs OXA dans les troubles de l'hémostase (EI)
+  - Cefazo vs OXA dans les AKI (EI)
 
 ## To do 
 
