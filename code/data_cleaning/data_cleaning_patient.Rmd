@@ -5,9 +5,9 @@ date: "2026-02-03"
 ---
 # Data import
 ```{r}
-patient_1 <- readRDS("data_extraction/patient/patient_1.rds")
-patient_2 <- readRDS("data_extraction/patient/patient_2.rds")
-patient_3 <- readRDS("data_extraction/patient/patient_3.rds")
+patient_1 <- readRDS("raw_data/patient_1.rds")
+patient_2 <- readRDS("raw_data/patient_2.rds")
+patient_3 <- readRDS("raw_data/patient_3.rds")
 ```
 
 # Age and Sex
@@ -304,6 +304,71 @@ chr_patient <- patient_3 %>%
   mutate_all(~ifelse(. %in% c(-Inf, Inf), NA, .))
 ```
 
+# ICU outcome
+```{r}
+icu_ocm <- patient_3 %>% 
+  mutate(VariableName = str_replace(string = VariableName, pattern = "\xe", "e")) %>%
+  mutate(StringValue = str_replace(string = StringValue, pattern = "\xe", "e")) %>%
+  filter(VariableName == "service destinataire") %>% 
+  mutate(ocm_icu_dch = case_when(StringValue %in% c("Morgue") ~ "Death", 
+                                 StringValue %in% c("GHPS Porte", 
+                                                    "GHPS Ortho", 
+                                                    "GHPS R�veil", 
+                                                    "GHPS Chir autre ", 
+                                                    "GHPS Gyn�co", 
+                                                    "GHPS Psy", 
+                                                    "GHPS N�phro", 
+                                                    "GHPS Gastro", 
+                                                    "GHPS Uro", 
+                                                    "GHPS Oncologie", 
+                                                    "GHPS Infect Bricaire", 
+                                                    "GHPS H�matologie", 
+                                                    "GHPS Cardio Salle", 
+                                                    "GHPS Pneumo", 
+                                                    "GHPS Neuro", 
+                                                    "GHPS Chir autre",
+                                                    "GHPS M�d Int Herson", 
+                                                    "GHPS M�decine autre", 
+                                                    "GHPS Cardio USIC", 
+                                                    "GHPS M�decine Piette",  
+                                                    "GHPS Chir Card.Salle"
+                                                    ) ~ "Ward",
+                                 StringValue %in% c("GHPS Chir Card.R�a",
+                                                    "GHPS R�a Chastre",
+                                                    "GHPS R�a Rouby",
+                                                    "GHPS R�a Autre",
+                                                    "GHPS R�a Chastre", 
+                                                    "GHPS USC Chastre") ~ "Other ICU same hospital",
+                                 StringValue %in% c("R�a autre h�pital") ~ "ICU Other hospital", 
+                                 StringValue %in% c("Domicile") ~ "Home", 
+                                 StringValue %in% c("Autre") ~ "Other", 
+                                 StringValue %in% c("M�d autre h�pital", 
+                                                    "Chir autre h�pital") ~ "Other hospital - non ICU", 
+                                 
+                                 .default = "9999"
+                                 )) %>%
+  select(PatientID, ocm_icu_dch) %>%
+  distinct()
+
+
+icu_death <- patient_3 %>% 
+  mutate(VariableName = str_replace(string = VariableName, pattern = "\xe", "e")) %>%
+  mutate(StringValue = str_replace(string = StringValue, pattern = "\xe", "e")) %>%
+  filter(VariableName == "ICU outcome in Discharge Info") %>%
+  mutate(ocm_icu_death = ifelse(StringValue == "Dcd", 1, 0)) %>%
+  select(PatientID, ocm_icu_death) %>%
+  distinct()
+
+icu_ocm <- icu_ocm %>% 
+  merge(icu_death, 
+        by = "PatientID", all = TRUE) %>%
+  distinct() %>%
+  mutate(ocm_icu_death = case_when(ocm_icu_dch == "Death" ~ 1, 
+                                   .default = ocm_icu_death))
+```
+
+
+# Data merge
 ```{r}
 patient_final <- patient_1 %>%
   merge(patient_2, 
@@ -313,9 +378,11 @@ patient_final <- patient_1 %>%
   merge(weight_height, 
         by = "PatientID", all = TRUE) %>%
   merge(icu_admission_source, 
+        by = "PatientID", all = TRUE) %>% 
+  merge(icu_ocm, 
         by = "PatientID", all = TRUE)
 
-saveRDS(patient_final, "data_extraction/patient/patient_final.rds")
+saveRDS(patient_final, "clean_data/patient_final.rds")
 ```
 
 ```{r}
@@ -329,7 +396,9 @@ patient_final %>%
          grep("chr_", colnames(.)), 
          height, 
          weight, 
-         icu_adm_srce
+         icu_adm_srce, 
+         ocm_icu_dch, 
+         ocm_icu_death
   ) %>% 
   tbl_summary()
 ```
