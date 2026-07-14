@@ -16,6 +16,7 @@
 - TTE, TCA range avec comme outcome chg de membrane
 - Cefazo/Ceftaroline vs OXA dans les troubles de l'hémostase (EI)
 - Cefazo vs OXA dans les AKI (EI)
+- Quantification de la Dobutamine sur la dose de noradrénaline
 
 ## To do
 
