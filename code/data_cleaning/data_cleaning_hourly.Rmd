@@ -1,0 +1,340 @@
+---
+title: "data_cleaning_hourly"
+output: html_document
+date: "2026-07-10"
+---
+
+# Data import
+```{r}
+library(dplyr)
+library(stringr)
+
+hourly_1 <- readRDS("raw_data/observations.rds")
+
+hourly_1 <- hourly_1 %>% 
+  mutate(VariableName = tolower(str_replace_all(VariableName, "�", "e")), 
+         VariableAbbreviation = tolower(str_replace_all(VariableAbbreviation, "�", "e")), 
+         StringValue = tolower(str_replace_all(StringValue, "�", "e")), 
+         ValueUnit = tolower(str_replace_all(ValueUnit, "�", "e"))
+         )
+
+hourly_1 %>%
+  select(VariableName) %>%
+  filter(!VariableName %in% c("verification  ecmo")) %>%
+  filter(VariableName %in% grep("ecmo", VariableName, value = TRUE)) %>%
+  distinct() %>% 
+  arrange(VariableName) %>% 
+  View()
+```
+
+# ECMO
+## ECMO tracking 
+
+```{r}
+ecmo_patients <- hourly_1 %>%
+  filter(!VariableName %in% c("verification  ecmo")) %>%
+  filter(VariableName %in% grep("ecmo", VariableName, value = TRUE)) %>% filter(PatientID == 9415)
+  mutate(ecmo = 1) %>% 
+  select(PatientID, ecmo) %>% 
+  distinct()
+```
+
+## ECMO type
+```{r}
+ecmo_type <- hourly_1 %>%
+  filter(VariableName %in% c("type ecmo")) %>%
+  distinct() %>% 
+  pivot_wider(names_from = VariableName, 
+              values_from = StringValue) %>%
+  rename("ecmo_type" = `type ecmo`)
+
+ecmo_type_2 <- hourly_1 %>%
+  filter(VariableName %in% c("ecmo vv",
+                             "ecmo va", 
+                             "resaon for vv ecmo",
+                             "pre ecmo minute ventilation",
+                             "pre ecmo vt",
+                             "pre ecmo peep",
+                             "pre ecmo pplat",
+                             "pre ecmo fio2",
+                             "pre ecmo ph",
+                             "pre ecmo po2",
+                             "tamponnade on ecmo",
+                             "ecmo failure or accident",
+                             "new ecmo run",
+                             "ecmo removal",
+                             "debit ecmo vv"
+  )) %>%
+  mutate(NumValue = 1) %>%
+  distinct() %>%
+  mutate(ecmo_type = str_extract(VariableName, pattern = "vv|va")) %>%
+  mutate(ecmo_type = ifelse(VariableName %in% c("resaon for vv ecmo",
+                                                "pre ecmo minute ventilation",
+                                                "pre ecmo vt",
+                                                "pre ecmo peep",
+                                                "pre ecmo pplat",
+                                                "pre ecmo fio2",
+                                                "pre ecmo ph",
+                                                "pre ecmo po2"), 
+                            "vv", 
+                            ecmo_type)) %>%
+  mutate(VariableName = "ecmo") %>% 
+  select(PatientID, ValueTime, VariableName, NumValue, ecmo_type)
+
+ecmo_type %>%
+  group_by(PatientID) %>%
+  bind_rows(ecmo_type_2 %>% mutate(test = 2)) %>%
+  select(PatientID, ecmo_type, test) %>% 
+  View()
+
+
+
+ecmo_final <- ecmo_1 %>%
+  select(PatientID, ValueTime, ecmo) %>%
+  merge(ecmo_type %>% 
+          select(PatientID, ValueTime, ecmo_type), 
+        by = c("PatientID", "ValueTime"), all = TRUE) %>%
+  bind_rows(ecmo_2 %>% 
+              select(PatientID, ValueTime, ecmo)) %>%
+  fill(everything(), .direction = "updown") %>%
+  mutate(ecmo_type = str_replace(string = ecmo_type, pattern = "veinoveineuse",replacement = "vv")) %>%
+  mutate(ecmo_type = str_replace(string = ecmo_type, pattern = "veino arterielle",replacement = "va"))
+
+# ECMO insertion and removal
+ecmo_insertion <- ecmo_final %>%
+  group_by(PatientID) %>%
+  arrange(PatientID, 
+          ValueTime) %>%
+  mutate(ecmo_insertion = ValueTime[1])
+
+ecmo_removal <- hourly_1 %>%
+  filter(VariableName %in% c("ecmo removal")) %>%
+  mutate(VariableName = "ecmo_removal") %>%
+  distinct() %>%
+  group_by(PatientID) %>%
+  arrange(ValueTime, .direction = -1) %>%
+  slice(1) %>%
+  pivot_wider(names_from = VariableName, values_from = ValueTime) %>%
+  rename(reason_for_removal = StringValue)
+
+ecmo_final <- ecmo_final %>%
+  merge(ecmo_insertion %>%
+          select(PatientID, ecmo_insertion), 
+        by = c("PatientID"), all = TRUE) %>%
+  merge(ecmo_removal %>%
+          select(PatientID, ecmo_removal, reason_for_removal), 
+        by = c("PatientID"), all = TRUE)
+
+ecmo_final %>% 
+  group_by(PatientID)
+
+```
+
+```{r}
+# Flow
+debit <- hourly_1 %>%
+  filter(VariableName %in% c("debit ecmo vv", 
+                             "debit ecmo va", 
+                             "debit ecmo")) %>% 
+  mutate(VariableName = "debit_ecmo") %>%
+  pivot_wider(names_from = VariableName, values_from = NumValue)
+
+# RPM
+rpm <- hourly_1 %>%
+  filter(VariableName %in% c("vitesse pompe ecmo", 
+                             "vitesse rotation", 
+                             "vitesse pomp")) %>%
+  mutate(VariableName = "rpm") %>%
+  pivot_wider(names_from = VariableName, values_from = NumValue)
+
+# Pressure
+pressure <- hourly_1 %>%
+  filter(VariableName %in% c("p1 pression veineuse",
+                             "p2 pression arterielle",
+                             "p3 pression arterielle"))  %>%
+  mutate(VariableName = str_extract(VariableName, "p1|p2|p3")) %>%
+  pivot_wider(names_from = VariableName, values_from = NumValue)
+
+ecmo_final <- ecmo_final %>%
+  merge(debit %>% select(PatientID, ValueTime, debit_ecmo), by = c("PatientID", "ValueTime"), all = TRUE) %>%
+  merge(rpm %>% select(PatientID, ValueTime, rpm), by = c("PatientID", "ValueTime"), all = TRUE) %>%
+  merge(pressure %>% select(PatientID, ValueTime, p1:p3), by = c("PatientID", "ValueTime"), all = TRUE)
+
+ecmo_final <- ecmo_final %>%
+  group_by(PatientID) %>%
+  fill(ecmo_insertion, .direction = "downup") %>%
+  arrange(ValueTime) %>% 
+  mutate(ecmo_insertion =  case_when(is.na(ecmo_insertion) ~ ValueTime[1], 
+                                     .default = ecmo_insertion)) %>%
+  ungroup() %>%
+  mutate(ecmo_day = as.numeric(round(difftime(ValueTime, ecmo_insertion, units = "days"))))
+
+ecmo_final %>%
+  filter(ecmo_type %in% c("vv", "va")) %>%
+  filter(debit_ecmo <  10 & ecmo_day < 14) %>%
+  ggline(x = "ecmo_day", y = "debit_ecmo", color = "ecmo_type", add = "median")
+
+# "site canulation admission",
+# "date de pose cpbia", 
+# "date de la pose de l'impella", 
+# "contrepulsion", 
+# "cannula size (return)", 
+# "cannula size (drainage)",
+# "programme impella", 
+# "pansement impella", 
+# "impella use", 
+# "impella", 
+# "debit moyen impella", 
+# "date pose impella", 
+# "date de la pose de l'impella"
+```
+
+```{r}
+hourly_1 %>% 
+  filter(VariableName == "changement membrane") %>%
+  mutate(year = year(ValueTime)) %>% 
+  group_by(year) %>%
+  summarise(n = n())
+```
+
+
+
+# PAPO 
+```{r}
+hourly %>% 
+  mutate(VariableName = tolower(str_replace_all(VariableName, "�", "e")), 
+         VariableAbbreviation = tolower(str_replace_all(VariableAbbreviation, "�", "e"))) %>%
+  filter(VariableAbbreviation == "papm") %>% View()
+```
+
+# Urine output
+```{r}
+patient_3 %>% 
+  filter(VariableName == "hourly urine output rate") %>%
+  View()
+```
+
+```{r}
+patient_3 %>% 
+  filter(VariableName == "PEEP") %>% 
+  View()
+
+patient_3 %>%
+  filter(VariableName == "Vt") %>% View()
+
+
+patient_3 %>%
+  filter(VariableName %in% c("ECMO",
+                             "ECMO VA",
+                             "ECMO VV",
+                             "ECMO removal"
+  ))
+```
+
+```{r}
+hourly_1 <- readRDS("data_extraction/hourly/hourly_1.rds")
+
+hourly_1 <- hourly_1 %>% 
+  mutate(VariableName = tolower(str_replace_all(VariableName, "�", "e")), 
+         StringValue = tolower(str_replace_all(StringValue, "�", "e")))
+```
+
+```{r}
+hourly_1 %>% 
+  select(VariableAbbreviation, VariableName) %>%
+  distinct() %>% 
+  View(title = "1")
+```
+
+```{r}
+hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("vt(m)", 
+                                     "vtexp(m)",
+  )) %>% 
+  View()
+
+hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("Vt(r)", 
+                                     "Vt",
+  )) %>% 
+  View()
+```
+
+
+# Notes
+```{r}
+library(ollamar)
+
+notes <- readRDS("data_extraction/patient/notes.rds") %>%
+  mutate(Notes = tolower(str_replace_all(Notes, "�", "e")), 
+         Header = tolower(str_replace_all(Header, "�", "e"))) 
+
+choc_cardio_anis <- readxl::read_excel("/Users/anischaba/Downloads/cardiogenic_shock_ccc.xlsx", sheet = "anis") %>% 
+  filter(!is.na(Shock_Type_1)) %>%
+  select(PatientNumber)
+
+ids <- choc_cardio_anis$PatientNumber
+
+eds_crh <- read_csv2("data_extraction/eds/cardiogenic_shock_crh/note.csv")
+eds_ipp <- read_csv2("data_extraction/eds/cardiogenic_shock_crh/person.csv")
+eds_crh <- eds_crh %>% merge(eds_ipp %>% select(person_id, person_source_value))
+
+eds_crh <- eds_crh %>% 
+  filter(person_source_value %in% ids)
+
+responses <- map(eds_crh$note_text, 
+                 .f = ~ generate("mistral-large-3:675b-cloud", 
+                                 paste("Voici une note médicale", "Début de la note", .,"Fin de la note","Classe le type de choc cardiogénique en fonction des catégories suivantes : Valvular, Supreventricular arrythmia, Ischemic, Myocarditis, Conduction abnormality, Post Arrest, Post Translplant, Pulmonary Embolism, NOS Dilated Cardiomyopathy, Septic, Post CEC, Other", "Ne répond que par une de ces catégories", "Ne fais pas de phrase. Donne juste la catégorie", "Ne fait pas de supposition", "Base toi uniquement sur les données factuelles du CRH")), 
+                 .progress = TRUE)
+
+map(responses, ~resp_process(., "text")) %>%
+  combine() %>%
+  data_frame() %>%
+  rename(answer = ".") %>%
+  mutate(answer = tolower(answer)) %>%
+  mutate(PatientNumber = eds_crh$person_source_value, 
+         notedate = eds_crh$note_datetime
+         ) %>%
+  View()
+
+notes_chgt_mb %>%
+  select(PatientID, Header) %>%
+  View()
+```
+
+# Labs
+
+
+```{r}
+hb <- hourly_1 %>% filter(VariableName %in% c("hemoglobine plasmatique")) %>%
+  mutate(NumValue = ifelse(str_detect(StringValue, "<60|< 20|<20|<40|<50"), 60, NumValue)) %>% View()
+pivot_wider(names_from = VariableName, values_from = c(NumValue, ValueTime)) %>%
+  unnest() 
+
+trigli <- hourly_1 %>% filter(VariableName %in% c("triglycerides")) %>%
+  pivot_wider(names_from = VariableName, values_from = c(NumValue, ValueTime)) %>%
+  unnest() 
+
+test <- hb %>% 
+  merge(trigli %>% select(PatientID, `NumValue_triglycerides`, `ValueTime_triglycerides`), by = "PatientID")
+
+test %>%
+  
+  ggscatterstats(x = `NumValue_hemoglobine plasmatique`, y = NumValue_triglycerides)
+
+
+
+%>%
+  # merge(patient_1 %>% select(PatientID, AdmTime), by = "PatientID") %>%
+  mutate(icu_day = as.numeric(round(difftime(`ValueTime_hemoglobine plasmatique`, ValueTime_triglycerides, units = "days"))))
+
+hb %>% 
+  group_by(PatientID) %>% 
+  summarise(triglycerides = max(triglycerides, na.rm = TRUE), 
+            hb_libre = max(`hemoglobine plasmatique`, na.rm = TRUE)) %>%
+  View()
+
+```
+
+
+
