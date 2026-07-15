@@ -1,0 +1,367 @@
+---
+title: "data_cleaning_ventilation"
+output: html_document
+date: "2026-05-12"
+---
+
+```{r}
+library(dplyr)
+library(stringr)
+
+hourly_1 <- readRDS("raw_data/observations.rds")
+
+hourly_1 <- hourly_1 %>% 
+  mutate(VariableName = tolower(str_replace_all(VariableName, "�", "e")), 
+         VariableAbbreviation = tolower(str_replace_all(VariableAbbreviation, "�", "e")), 
+         StringValue = tolower(str_replace_all(StringValue, "�", "e")))
+```
+
+```{r}
+hourly_1 %>% 
+  select(VariableAbbreviation, VariableName) %>%
+  distinct() %>% 
+  View(title = "1")
+
+hourly_1 %>% 
+  select(VariableAbbreviation, VariableName, ValueUnit) %>%
+  distinct() %>% 
+  filter(ValueUnit == "cmH2O") %>%
+  View(title = "1")
+```
+
+```{r}
+# VT exp
+
+vt_exp <- hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("vt(m)", 
+                                     "vtexp(m)"
+  )) %>%
+  mutate(VariableAbbreviation = ifelse(VariableAbbreviation %in% c("vt(m)", 
+                                                                   "vtexp(m)"),
+                                       "vtexp", 
+                                       VariableAbbreviation
+  ))
+
+# VT prescribed
+vt <- hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("vt(r)", 
+                                     "vt"
+  )) %>%
+  mutate(VariableAbbreviation = ifelse(VariableAbbreviation %in% c("vt(r)", 
+                                                                   "vt"),
+                                       "vt", 
+                                       VariableAbbreviation
+  ))
+
+# PEEP
+peep <- hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("peep",
+                                     "pep2(r)",
+                                     #    "pep(m)",
+                                     "pep(r)"
+  )) %>%
+  mutate(VariableAbbreviation = ifelse(VariableAbbreviation %in% c("peep",
+                                                                   "pep2(r)",
+                                                                   #  "pep(m)",
+                                                                   "pep(r)"), 
+                                       "peep", 
+                                       VariableAbbreviation
+  ))
+
+# Pplat
+pplat <- hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("pplat",
+                                     "peplat(m)"
+  )) %>%
+  mutate(VariableAbbreviation = ifelse(VariableAbbreviation %in% c("pplat", 
+                                                                   "peplat(m)"),
+                                       "pplat", 
+                                       VariableAbbreviation
+  ))
+
+# PSV
+psv <- hourly_1 %>% 
+  filter(VariableAbbreviation %in% c(
+    # "peai(r)", Not correct. Nonsense values and incorrect unit
+    "bipapp1(r)",
+    "$ peai vsai"
+  )) %>% 
+  mutate(VariableAbbreviation = ifelse(VariableAbbreviation %in% c("bipapp1(r)",
+                                                                   "$ peai vsai"),
+                                       "psv",
+                                       VariableAbbreviation
+  )
+  )
+
+# Pcontrol
+pcontrol <- hourly_1 %>% 
+  filter(VariableAbbreviation %in% c(
+    "pecontrol(r)"
+  )) %>% 
+  mutate(VariableAbbreviation = ifelse(VariableAbbreviation %in% c("pecontrol(r)"),
+                                       "pcontrol",
+                                       VariableAbbreviation
+  ))
+
+hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("p0.1")) %>% 
+  group_by(PatientID) %>% 
+  View()
+
+# Mode
+mode <- hourly_1 %>% 
+  filter(VariableAbbreviation %in% c("mode evita",
+                                     "mode evita.",
+                                     "evita mode",
+                                     "mode erica",
+                                     "mode evita 4",
+                                     "draeger mode",
+                                     "v500 mode",
+                                     "v500 mode.",
+                                     "modevita2(m)",
+                                     "mode evita4",
+                                     "mode evita 2"
+  )) %>%
+  mutate(VariableAbbreviation = ifelse(VariableAbbreviation %in% c("mode evita",
+                                                                   "mode evita.",
+                                                                   "evita mode",
+                                                                   "mode erica",
+                                                                   "mode evita 4",
+                                                                   "draeger mode",
+                                                                   "v500 mode",
+                                                                   "v500 mode.",
+                                                                   "modevita2(m)",
+                                                                   "mode evita4",
+                                                                   "mode evita 2"),
+                                       "mode", 
+                                       VariableAbbreviation
+  ))
+```
+
+```{r}
+ventilation_final <- bind_rows(vt_exp, vt, peep, pplat, mode, psv, pcontrol)
+```
+
+```{r}
+# Add admission time
+
+### import patient final
+
+ventilation_final <- ventilation_final %>% 
+  merge(patient_final %>% select(PatientID, AdmTime), 
+        by = "PatientID")
+
+```
+
+# Examples
+```{r}
+library(ggpubr)
+library(tidyverse)
+
+ventilation_final <- ventilation_final %>%
+  arrange(PatientID, ValueTime) %>% 
+  group_by(PatientID, VariableAbbreviation) %>% 
+  mutate(icu_hour = as.numeric(round(difftime(ValueTime, AdmTime, units = "hours")))) %>% 
+  ungroup()
+
+ventilation_final <- ventilation_final %>%
+  filter(VariableAbbreviation != "mode") %>%
+  select(PatientID, VariableAbbreviation, NumValue, icu_hour) %>%
+  group_by(PatientID, VariableAbbreviation, icu_hour) %>% 
+  mutate(NumValue = median(NumValue, na.rm = TRUE)) %>%
+  distinct() %>%
+  ungroup() %>%
+  pivot_wider(names_from = "VariableAbbreviation", values_from = "NumValue") %>%
+  arrange(PatientID, icu_hour) %>%
+  merge(ventilation_final %>%
+          filter(VariableAbbreviation == "mode") %>%
+          select(PatientID, VariableAbbreviation, StringValue, icu_hour) %>%
+          group_by(PatientID, VariableAbbreviation, icu_hour) %>% 
+          slice(1) %>%
+          ungroup() %>%
+          pivot_wider(names_from = "VariableAbbreviation", values_from = "StringValue") %>%
+          arrange(PatientID, icu_hour), 
+        by = c("PatientID", "icu_hour"), 
+        all = TRUE
+  ) %>%
+  arrange(PatientID, icu_hour) %>%
+  View()
+```
+
+```{r}
+library(purrr)
+library(tidyverse)
+
+rds.files <- list.files(path = "data_extraction/hourly", pattern = "^hourly_2", full.names = TRUE)
+patient_final <- readRDS("data_extraction/patient/patient_final.rds")
+
+res.data_1 <- map(rds.files[1:3], function(x){
+  
+  data <- readRDS(x)
+  
+  data <- data %>%
+    merge(patient_final %>% select(PatientID, AdmTime), by = "PatientID") %>%
+    group_by(PatientID) %>%
+    mutate(icu_hour = round(as.numeric(difftime(ValueTime, AdmTime, units = "hours")))) %>%
+    group_by(PatientID, icu_hour) %>%
+    summarise(VariableAbbreviation, 
+              VariableName,
+              ValueUnit, 
+              StringValue,
+              NumValue = median(NumValue)) %>%
+    ungroup() %>%
+    distinct()
+  
+  return(data)
+  
+}, .progress = TRUE)
+
+res.data_2 <- map(rds.files[4:6], function(x){
+  
+  data <- readRDS(x)
+  
+  data <- data %>%
+    merge(patient_final %>% select(PatientID, AdmTime), by = "PatientID") %>%
+    group_by(PatientID) %>%
+    mutate(icu_hour = round(as.numeric(difftime(ValueTime, AdmTime, units = "hours")))) %>%
+    group_by(PatientID, icu_hour) %>%
+    summarise(VariableAbbreviation, 
+              VariableName,
+              ValueUnit, 
+              StringValue,
+              NumValue = median(NumValue)) %>%
+    ungroup() %>%
+    distinct()
+  
+  return(data)
+  
+}, .progress = TRUE)
+
+res.data_3 <- map(rds.files[7:10], function(x){
+  
+  data <- readRDS(x)
+  
+  data <- data %>%
+    merge(patient_final %>% select(PatientID, AdmTime), by = "PatientID") %>%
+    group_by(PatientID) %>%
+    mutate(icu_hour = round(as.numeric(difftime(ValueTime, AdmTime, units = "hours")))) %>%
+    group_by(PatientID, icu_hour) %>%
+    summarise(VariableAbbreviation, 
+              VariableName,
+              ValueUnit, 
+              StringValue,
+              NumValue = median(NumValue)) %>%
+    ungroup() %>%
+    distinct()
+  
+  return(data)
+  
+}, .progress = TRUE)
+
+res.data_4 <- map(rds.files[11:13], function(x){
+  
+  data <- readRDS(x)
+  
+  data <- data %>%
+    merge(patient_final %>% select(PatientID, AdmTime), by = "PatientID") %>%
+    group_by(PatientID) %>%
+    mutate(icu_hour = round(as.numeric(difftime(ValueTime, AdmTime, units = "hours")))) %>%
+    group_by(PatientID, icu_hour) %>%
+    summarise(VariableAbbreviation, 
+              VariableName,
+              ValueUnit, 
+              StringValue,
+              NumValue = median(NumValue)) %>%
+    ungroup() %>%
+    distinct()
+  
+  return(data)
+  
+}, .progress = TRUE)
+
+res.data_5 <- map(rds.files[14:16], function(x){
+  
+  data <- readRDS(x)
+  
+  data <- data %>%
+    merge(patient_final %>% select(PatientID, AdmTime), by = "PatientID") %>%
+    group_by(PatientID) %>%
+    mutate(icu_hour = round(as.numeric(difftime(ValueTime, AdmTime, units = "hours")))) %>%
+    group_by(PatientID, icu_hour) %>%
+    summarise(VariableAbbreviation, 
+              VariableName,
+              ValueUnit, 
+              StringValue,
+              NumValue = median(NumValue)) %>%
+    ungroup() %>%
+    distinct()
+  
+  return(data)
+  
+}, .progress = TRUE)
+
+res.data_6 <- map(rds.files[17:19], function(x){
+  
+  data <- readRDS(x)
+  
+  data <- data %>%
+    merge(patient_final %>% select(PatientID, AdmTime), by = "PatientID") %>%
+    group_by(PatientID) %>%
+    mutate(icu_hour = round(as.numeric(difftime(ValueTime, AdmTime, units = "hours")))) %>%
+    group_by(PatientID, icu_hour) %>%
+    summarise(VariableAbbreviation, 
+              VariableName,
+              ValueUnit, 
+              StringValue,
+              NumValue = median(NumValue)) %>%
+    ungroup() %>%
+    distinct()
+  
+  return(data)
+  
+}, .progress = TRUE)
+
+res.data_7 <- map(rds.files[20:22], function(x){
+  
+  data <- readRDS(x)
+  
+  data <- data %>%
+    merge(patient_final %>% select(PatientID, AdmTime), by = "PatientID") %>%
+    group_by(PatientID) %>%
+    mutate(icu_hour = round(as.numeric(difftime(ValueTime, AdmTime, units = "hours")))) %>%
+    group_by(PatientID, icu_hour) %>%
+    summarise(VariableAbbreviation, 
+              VariableName,
+              ValueUnit, 
+              StringValue,
+              NumValue = median(NumValue)) %>%
+    ungroup() %>%
+    distinct()
+  
+  return(data)
+  
+}, .progress = TRUE)
+
+saveRDS(res.data_1, "data_extraction/hourly/res_data_1.rds")
+saveRDS(res.data_2, "data_extraction/hourly/res_data_2.rds")
+saveRDS(res.data_3, "data_extraction/hourly/res_data_3.rds")
+saveRDS(res.data_4, "data_extraction/hourly/res_data_4.rds")
+saveRDS(res.data_5, "data_extraction/hourly/res_data_5.rds")
+saveRDS(res.data_6, "data_extraction/hourly/res_data_6.rds")
+saveRDS(res.data_7, "data_extraction/hourly/res_data_7.rds")
+```
+
+```{r}
+rds.files <- list.files(path = "data_extraction/hourly", pattern = "^res_data_", full.names = TRUE)
+
+hourly <- map_dfr(rds.files, readRDS, .progress = TRUE)
+
+
+hourly %>% 
+  mutate(VariableName = tolower(str_replace_all(VariableName, "�", "e")), 
+         VariableAbbreviation = tolower(str_replace_all(VariableAbbreviation, "�", "e"))) %>%
+  filter(VariableAbbreviation == "pep(r)")
+
+```
+
+
